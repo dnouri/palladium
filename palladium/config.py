@@ -1,3 +1,4 @@
+from copy import deepcopy
 import logging
 from logging.config import dictConfig
 import os
@@ -9,14 +10,6 @@ PALLADIUM_CONFIG_ERROR = """
   to point to your Palladium configuration file?  If so, please
   refer to the manual for more details.
 """
-
-
-def create_component(specification):
-    from .util import resolve_dotted_name
-    specification = specification.copy()
-    factory_dotted_name = specification.pop('__factory__')
-    factory = resolve_dotted_name(factory_dotted_name)
-    return factory(**specification)
 
 
 class Config(dict):
@@ -62,40 +55,92 @@ def initialize_config(**extra):
     return get_config(**extra)
 
 
-def _initialize_config_recursive(props):
-    rv = []
+def _initialize_config_recursive(props, handlers):
     if isinstance(props, dict):
         for key, value in tuple(props.items()):
             if isinstance(value, dict):
-                rv.extend(_initialize_config_recursive(value))
-                if '__factory__' in value:
-                    props[key] = create_component(value)
-                    rv.append(props[key])
+                _initialize_config_recursive(value, handlers)
+                for name, handler in handlers.items():
+                    if name in value:
+                        props[key] = handler(value)
             elif isinstance(value, (list, tuple)):
-                rv.extend(_initialize_config_recursive(value))
+                _initialize_config_recursive(value, handlers)
     elif isinstance(props, (list, tuple)):
         for i, item in enumerate(props):
             if isinstance(item, dict):
-                rv.extend(_initialize_config_recursive(item))
-                if '__factory__' in item:
-                    props[i] = create_component(item)
-                    rv.append(props[i])
+                _initialize_config_recursive(item, handlers)
+                for name, handler in handlers.items():
+                    if name in item:
+                        props[i] = handler(item)
             elif isinstance(item, (list, tuple)):
-                rv.extend(_initialize_config_recursive(item))
-    return rv
+                _initialize_config_recursive(item, handlers)
 
 
-def _initialize_config(config):
-    components = []
+class ComponentHandler:
+    key = '__factory__'
 
+    def __init__(self, config):
+        self.config = config
+        self.components = []
+
+    def __call__(self, specification):
+        from .util import resolve_dotted_name
+        specification = specification.copy()
+        factory_dotted_name = specification.pop(self.key)
+        factory = resolve_dotted_name(factory_dotted_name)
+        component = factory(**specification)
+        self.components.append(component)
+        return component
+
+    def finish(self):
+        for component in self.components:
+            if hasattr(component, 'initialize_component'):
+                component.initialize_component(self.config)
+
+
+class CopyHandler:
+    key = '__copy__'
+
+    def __init__(self, config):
+        self.config = config
+
+    def __call__(self, props):
+        dotted_path = props.pop(self.key)
+        value = self.config
+        for part in dotted_path.split('.'):
+            value = value[part]
+        value = deepcopy(value)
+        if props:
+            value.update(props)
+        return value
+
+
+def _handlers_phase1(config):
+    return {
+        Handler.key: Handler(config) for Handler in [
+            CopyHandler,
+            ]
+        }
+
+
+def _handlers_phase2(config):
+    return {
+        Handler.key: Handler(config) for Handler in [
+            ComponentHandler,
+            ]
+        }
+
+
+def _initialize_config(config, handlers1=None, handlers2=None):
     if 'logging' in config:
         dictConfig(config['logging'])
     else:
         logging.basicConfig(level=logging.DEBUG)
 
-    components = _initialize_config_recursive(config)
-    for component in components:
-        if hasattr(component, 'initialize_component'):
-            component.initialize_component(config)
+    for handlers in [_handlers_phase1(config), _handlers_phase2(config)]:
+        _initialize_config_recursive(config, handlers)
+        for handler in handlers.values():
+            if hasattr(handler, 'finish'):
+                handler.finish()
 
     return config

@@ -15,11 +15,19 @@ class MyDummyComponent:
     def initialize_component(self, config):
         self.initialize_component_arg = config
 
+    def __eq__(self, other):
+        return all([
+            self.arg1 == other.arg1,
+            self.arg2 == other.arg2,
+            self.subcomponent == other.subcomponent,
+            self.initialize_component_arg == other.initialize_component_arg,
+            ])
 
-def test_create_component():
-    from palladium.config import create_component
 
-    result = create_component({
+def test_component_handler():
+    from palladium.config import ComponentHandler
+
+    result = ComponentHandler(None)({
         '__factory__': 'palladium.tests.test_config.MyDummyComponent',
         'arg1': 3,
         })
@@ -76,6 +84,17 @@ class TestInitializeConfigImpl:
                 },
             }]],
             'myconstant': 42,
+
+            'mycopiedconstant': {
+                '__copy__': 'mycomponent.arg1',
+                },
+
+            'mydict': {
+                'mycopiedcomponent': {
+                    '__copy__': 'mycomponent',
+                    'arg2': None,
+                    },
+                },
             }
 
         config = _initialize_config(config)
@@ -107,7 +126,14 @@ class TestInitializeConfigImpl:
         mnl = config['mynestedlistofcomponents']
         assert isinstance(mnl[0][0], MyDummyComponent)
         assert mnl[0][0].arg1 == 'feep'
-        assert isinstance(mnl[0][0].arg2, MyDummyComponent)
+
+        assert config['mycopiedconstant'] == 3
+
+        mcc = config['mydict']['mycopiedcomponent']
+        assert mcc.arg2 is None
+        assert mcc.arg1 == mycomponent.arg1
+        assert mcc.subcomponent == mycomponent.subcomponent
+        assert mcc.subcomponent is not mycomponent.subcomponent
 
     def test_initialize_config_logging(self, _initialize_config):
         with patch('palladium.config.dictConfig') as dictConfig:

@@ -85,6 +85,14 @@ class TestInitializeConfigImpl:
             }]],
             'myconstant': 42,
 
+            'dummy': {
+                '__python__': [
+                'config["mynestedlistofcomponents"][0][0]["arg2"]["__factory__"] = '
+                '"builtins:dict"',
+                'config["myotherconstant"] = 13',
+                ],
+             },
+
             'mycopiedconstant': {
                 '__copy__': 'mycomponent.arg1',
                 },
@@ -126,6 +134,9 @@ class TestInitializeConfigImpl:
         mnl = config['mynestedlistofcomponents']
         assert isinstance(mnl[0][0], MyDummyComponent)
         assert mnl[0][0].arg1 == 'feep'
+
+        assert isinstance(mnl[0][0].arg2, dict)
+        assert config['myotherconstant'] == 13
 
         assert config['mycopiedconstant'] == 3
 

@@ -115,10 +115,25 @@ class CopyHandler:
         return value
 
 
+class PythonHandler:
+    key = '__python__'
+
+    def __init__(self, config):
+        self.config = config
+
+    def __call__(self, props):
+        statements = props.pop(self.key)
+        if isinstance(statements, list):
+            statements = '\n'.join(statements)
+        exec(statements, globals(), {'config': self.config})
+        return props
+
+
 def _handlers_phase1(config):
     return {
         Handler.key: Handler(config) for Handler in [
             CopyHandler,
+            PythonHandler,
             ]
         }
 
